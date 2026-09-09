@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+/* Archivo palette — off-white paper, black ink, hard rules, radius 0.
+   Chartreuse is reserved for primary action only; brown/rust are the two
+   secondary accents used for evidence state and gaps. See design/design-system.html. */
+:root {
+  --paper: #f5f4ef;
+  --surface: #ffffff;
+  --surface-sunken: #f0efe9;
+  --ink: #14140f;
+  --ink-soft: #55544a;
+  --ink-faint: #8c8a7c;
+  --border: #14140f;
+  --border-soft: #d9d7c9;
+
+  --primary: #c6d92e;
+  --primary-ink: #14140f;
+  --primary-100: #f2f5d9;
+
+  --brown-700: #5a4526;
+  --brown-500: #8a6a34;
+  --brown-100: #efe8d3;
+
+  --rust-700: #8a3b23;
+  --rust-500: #b3502f;
+  --rust-100: #f3e2d8;
+
+  --green-700: #3d5c1f;
+  --green-500: #5a7c2e;
+  --green-100: #e6ecd2;
+
+  --mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: var(--font-archivo), Archivo, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --radius: 0px;
+  --grid: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14140f;
+    --surface: #1b1b14;
+    --surface-sunken: #100f0b;
+    --ink: #f0efe6;
+    --ink-soft: #b0ad9c;
+    --ink-faint: #77755f;
+    --border: #f0efe6;
+    --border-soft: #33321f;
+
+    --primary: #c6d92e;
+    --primary-ink: #14140f;
+    --primary-100: #2b3011;
+
+    --brown-700: #d9b877;
+    --brown-500: #b6934e;
+    --brown-100: #2c2413;
+
+    --rust-700: #e08a63;
+    --rust-500: #c96b45;
+    --rust-100: #2e1911;
+
+    --green-700: #a3c46b;
+    --green-500: #7fa04a;
+    --green-100: #1e2711;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Tailwind's preflight sets button { cursor: default }, which leaves every
+   plain <button> (mode toggles, filter tabs, etc.) looking inert even
+   though it's clickable. Restore the normal pointer affordance. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono {
+  font-family: var(--mono);
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+.badge-stated {
+  color: var(--green-700);
+}
+.badge-inferred {
+  color: var(--brown-700);
+}
+.badge-estimated {
+  color: var(--brown-700);
+}
+.badge-gap {
+  color: var(--rust-700);
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.05rem 0.4rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+/* For chips carrying a short label rather than a single tag (a step
+   reference, a "where" pointer) — labels can still run past the chip's
+   comfortable width in a narrow column, and wrapping reads better there
+   than clipping or forcing the row wider. */
+.chip-wrap {
+  white-space: normal;
+  max-width: 220px;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: var(--ink);
+}
+.btn-secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--border);
+}
+
+.card-entity {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.9rem 1rem;
+}
+.card-entity .kind {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+.card-entity .name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin: 0.15rem 0 0.4rem;
+}
+.card-entity .desc {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}

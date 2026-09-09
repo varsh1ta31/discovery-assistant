@@ -1,0 +1,513 @@
+// EKB — Enterprise Knowledge Base schema
+// Hybrid relational + JSON per spec §17.2. Provenance + evidence-state at
+// entity and attribute level per §8.4. Nine core entities per §8.2.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Shared enums
+// ---------------------------------------------------------------------------
+
+// Evidence state per §8.4 — directly stated, inferred, estimated, or a known gap.
+enum EvidenceState {
+  STATED
+  INFERRED
+  ESTIMATED
+  GAP
+}
+
+enum EntityKind {
+  ENGAGEMENT
+  PROCESS
+  PROCESS_STEP
+  PERSONA
+  SYSTEM
+  DATA_SOURCE
+  KNOWLEDGE_SOURCE
+  PAIN_POINT
+  EXCEPTION
+  METRIC
+  OPPORTUNITY
+}
+
+// §9.2 — capture mode governs Structuring/Discovery Agent behavior, not just UI.
+enum CaptureMode {
+  WRITE_UP
+  LIVE
+}
+
+enum SystemType {
+  INTERNAL
+  EXTERNAL
+}
+
+enum ApiAvailability {
+  YES
+  NO
+  PARTIAL
+  UNKNOWN
+}
+
+enum AccessMethod {
+  API
+  RPA
+  COMPUTER_USE
+  MANUAL
+}
+
+enum DataFormat {
+  STRUCTURED
+  UNSTRUCTURED
+}
+
+enum RetrievalReadiness {
+  RETRIEVABLE_AS_IS
+  NEEDS_CLEANUP
+  TRIBAL_KNOWLEDGE
+}
+
+enum RootCauseType {
+  PROCESS
+  TECHNICAL
+  ORGANIZATIONAL
+}
+
+enum TransformationLens {
+  ELIMINATE
+  AUTOMATE
+  OPTIMIZE
+  VALUE_ADD
+}
+
+// §11.1 — solution classes, least to most sophisticated.
+enum SolutionClass {
+  NO_CHANGE
+  PROCESS_SOP_CHANGE
+  RULES_ENGINE
+  RPA
+  SEARCH_RETRIEVAL
+  TRADITIONAL_ML
+  GENERATIVE_AI
+  AGENTIC_AI
+}
+
+// §12.1 — bands, not numbers.
+enum Band {
+  HIGH
+  MEDIUM
+  LOW
+  UNKNOWN
+}
+
+// ---------------------------------------------------------------------------
+// Provenance & evidence — the cross-cutting mechanism from §8.4
+// ---------------------------------------------------------------------------
+
+// One capture event: a narrative submission, a live fragment, an ingested
+// document or screenshot. Every entity/attribute traces back to one of these.
+model CaptureSession {
+  id            String      @id @default(cuid())
+  engagement    Engagement  @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId  String
+  contributor   Contributor @relation(fields: [contributorId], references: [id])
+  contributorId String
+  mode          CaptureMode
+  sourceType    String // "narrative" | "fragment" | "document" | "screenshot"
+  sourceLabel   String? // e.g. original filename
+  rawContent    String? // raw text dump, kept for re-processing / audit
+  createdAt     DateTime    @default(now())
+
+  provenanceRecords Provenance[]
+
+  @@index([engagementId])
+}
+
+// A person contributing to an engagement (§17.6 — contributor tagging).
+model Contributor {
+  id           String     @id @default(cuid())
+  engagement   Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId String
+  name         String
+  email        String?
+  role         String? // e.g. "facilitator", "expert"
+  createdAt    DateTime   @default(now())
+
+  captureSessions   CaptureSession[]
+  provenanceRecords Provenance[]
+
+  @@index([engagementId])
+}
+
+// Generic provenance + evidence-state record. Polymorphic on (entityKind,
+// entityId) rather than a table-per-entity FK, so every entity and every
+// named attribute on it can carry this metadata uniformly (§8.4). When
+// attribute is null, the record describes the entity as a whole; when set,
+// it describes one field (matches a key in that entity's `attributes` JSON
+// or a named scalar column).
+model Provenance {
+  id               String          @id @default(cuid())
+  entityKind       EntityKind
+  entityId         String
+  attribute        String? // null = whole-entity provenance
+  evidenceState    EvidenceState
+  captureSession   CaptureSession? @relation(fields: [captureSessionId], references: [id], onDelete: SetNull)
+  captureSessionId String?
+  contributor      Contributor?    @relation(fields: [contributorId], references: [id], onDelete: SetNull)
+  contributorId    String?
+  note             String? // short rationale, e.g. "inferred from step 4 mention"
+  flaggedForReview Boolean         @default(false) // low-confidence extraction (§9.2)
+  createdAt        DateTime        @default(now())
+  supersededById   String? // points at the record that replaced this one,
+  // preserving history rather than overwriting (§17.6)
+
+  @@index([entityKind, entityId])
+  @@index([entityKind, entityId, attribute])
+}
+
+// ---------------------------------------------------------------------------
+// Engagement — top-level container (§8.2)
+// ---------------------------------------------------------------------------
+
+model Engagement {
+  id           String   @id @default(cuid())
+  organization String
+  scope        String?
+  boundaries   String?
+  objectives   String?
+  attributes   Json     @default("{}") // gappy/evolving fields land here
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  contributors     Contributor[]
+  captureSessions  CaptureSession[]
+  processes        Process[]
+  personas         Persona[]
+  systems          SystemApplication[]
+  dataSources      DataSource[]
+  knowledgeSources KnowledgeSource[]
+}
+
+// ---------------------------------------------------------------------------
+// Process & Process Step (§8.2, §8.3)
+// ---------------------------------------------------------------------------
+
+model Process {
+  id            String     @id @default(cuid())
+  engagement    Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId  String
+  name          String
+  purpose       String?
+  trigger       String?
+  inputs        String?
+  outputs       String?
+  outcome       String?
+  businessValue String?
+  attributes    Json       @default("{}")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  steps      ProcessStep[]
+  painPoints PainPoint[]
+  exceptions Exception[]
+  metrics    Metric[]
+
+  @@index([engagementId])
+}
+
+model ProcessStep {
+  id                String   @id @default(cuid())
+  process           Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  processId         String
+  order             Int // ordering within the process
+  stage             String?
+  subProcess        String?
+  activity          String
+  entryTrigger      String?
+  exitCriteria      String? // deliberately nullable — "undefined exit criteria" is a first-class gap (§13.2)
+  dataConsumed      String?
+  dataProduced      String?
+  isEscalationPoint Boolean  @default(false)
+  attributes        Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  personas         StepPersona[]
+  systemLinks      StepSystem[]
+  knowledgeSources StepKnowledgeSource[]
+  painPoints       PainPoint[]
+  exceptions       Exception[]
+  metrics          Metric[]
+
+  @@unique([processId, order])
+  @@index([processId])
+}
+
+// ---------------------------------------------------------------------------
+// Stakeholder / Persona (§8.2)
+// ---------------------------------------------------------------------------
+
+model Persona {
+  id                String     @id @default(cuid())
+  engagement        Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId      String
+  role              String // role, not named individual, by default
+  isExternal        Boolean    @default(false)
+  responsibilities  String?
+  goals             String?
+  decisionAuthority String?
+  attributes        Json       @default("{}")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  steps                 StepPersona[]
+  systemsOwned          SystemApplication[]
+  knowledgeSourcesOwned KnowledgeSource[]
+
+  @@index([engagementId])
+}
+
+// join: step <-> persona (a step can involve multiple personas)
+model StepPersona {
+  step      ProcessStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  stepId    String
+  persona   Persona     @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  personaId String
+
+  @@id([stepId, personaId])
+}
+
+// ---------------------------------------------------------------------------
+// System / Application (§8.2)
+// ---------------------------------------------------------------------------
+
+model SystemApplication {
+  id                 String          @id @default(cuid())
+  engagement         Engagement      @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId       String
+  name               String
+  type               SystemType?
+  dataHeld           String?
+  isRead             Boolean         @default(false)
+  isWrite            Boolean         @default(false)
+  apiAvailability    ApiAvailability @default(UNKNOWN)
+  likelyAccessMethod AccessMethod?
+  dataFormat         DataFormat?
+  owner              Persona?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId            String?
+  accessConstraints  String?
+  attributes         Json            @default("{}")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  systemLinks StepSystem[]
+
+  @@index([engagementId])
+}
+
+enum StepSystemDirection {
+  READ
+  WRITE
+}
+
+// join: step <-> system, one row per (step, system, direction) per §8.2
+// ("reads from and writes to") — a step can both read and write the same
+// system, hence direction is part of the row rather than the step FK role.
+model StepSystem {
+  id        String              @id @default(cuid())
+  step      ProcessStep         @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  stepId    String
+  system    SystemApplication   @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  systemId  String
+  direction StepSystemDirection
+
+  @@unique([stepId, systemId, direction])
+  @@index([systemId])
+}
+
+// ---------------------------------------------------------------------------
+// Data Source (§8.2)
+// ---------------------------------------------------------------------------
+
+model DataSource {
+  id           String      @id @default(cuid())
+  engagement   Engagement  @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId String
+  name         String
+  format       DataFormat?
+  structure    String?
+  ownership    String?
+  entryPoint   String? // how it enters the process
+  exitPoint    String? // how it leaves the process
+  attributes   Json        @default("{}")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([engagementId])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Source (§8.2)
+// ---------------------------------------------------------------------------
+
+model KnowledgeSource {
+  id                 String              @id @default(cuid())
+  engagement         Engagement          @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId       String
+  name               String
+  type               String? // SOP, lookup table, registry, policy, tacit knowledge...
+  contents           String?
+  format             String?
+  location           String?
+  updateFrequency    String?
+  retrievalReadiness RetrievalReadiness?
+  owner              Persona?            @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId            String?
+  attributes         Json                @default("{}")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  steps StepKnowledgeSource[]
+
+  @@index([engagementId])
+}
+
+// join: step <-> knowledge source
+model StepKnowledgeSource {
+  step              ProcessStep     @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  stepId            String
+  knowledgeSource   KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+  knowledgeSourceId String
+
+  @@id([stepId, knowledgeSourceId])
+}
+
+// ---------------------------------------------------------------------------
+// Pain Point (§8.2)
+// ---------------------------------------------------------------------------
+
+model PainPoint {
+  id                String         @id @default(cuid())
+  refCode           String // human-readable reference ID, e.g. "PP-014"
+  process           Process?       @relation(fields: [processId], references: [id], onDelete: SetNull)
+  processId         String?
+  step              ProcessStep?   @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  stepId            String?
+  description       String
+  operationalImpact String?
+  rootCause         RootCauseType?
+  frequency         String?
+  businessImpact    String?
+  priority          String?
+  attributes        Json           @default("{}")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  affectedStakeholders PainPointStakeholder[]
+  opportunities        OpportunityPainPoint[]
+
+  @@index([processId])
+  @@index([stepId])
+}
+
+// join: pain point <-> affected stakeholder (persona)
+model PainPointStakeholder {
+  painPoint   PainPoint @relation(fields: [painPointId], references: [id], onDelete: Cascade)
+  painPointId String
+  personaId   String
+
+  @@id([painPointId, personaId])
+}
+
+// ---------------------------------------------------------------------------
+// Exception (§8.2)
+// ---------------------------------------------------------------------------
+
+model Exception {
+  id                      String       @id @default(cuid())
+  process                 Process?     @relation(fields: [processId], references: [id], onDelete: SetNull)
+  processId               String?
+  step                    ProcessStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  stepId                  String?
+  scenario                String
+  frequency               String?
+  currentResolutionMethod String?
+  resolvedBy              String?
+  typicalResolutionTime   String?
+  automationSuitability   String? // early judgment, per spec — free text, not banded yet
+  attributes              Json         @default("{}")
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  @@index([processId])
+  @@index([stepId])
+}
+
+// ---------------------------------------------------------------------------
+// Metric (§8.2)
+// ---------------------------------------------------------------------------
+
+model Metric {
+  id               String       @id @default(cuid())
+  process          Process?     @relation(fields: [processId], references: [id], onDelete: SetNull)
+  processId        String?
+  step             ProcessStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  stepId           String?
+  category         String? // volume, speed, accuracy, effort/cost, escalations, complexity...
+  currentValue     String? // may be a named gap — "known to matter, not yet quantified"
+  proportionManual String?
+  target           String?
+  potentialImpact  String?
+  attributes       Json         @default("{}")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([processId])
+  @@index([stepId])
+}
+
+// ---------------------------------------------------------------------------
+// Opportunity (§8.2, §11, §12) — derived entity
+// ---------------------------------------------------------------------------
+
+model Opportunity {
+  id                 String              @id @default(cuid())
+  problem            String
+  proposedSolution   String?
+  benefits           String?
+  risks              String?
+  dependencies       String?
+  transformationLens TransformationLens?
+
+  // Solution fit (§11)
+  solutionClass          SolutionClass?
+  solutionFitReasoning   String?
+  alternativesConsidered String?
+
+  // Scoring (§12)
+  valueBand      Band @default(UNKNOWN)
+  complexityBand Band @default(UNKNOWN)
+  confidenceBand Band @default(UNKNOWN) // High/Low in spec; UNKNOWN as pre-assessment default
+
+  attributes Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  painPoints OpportunityPainPoint[]
+}
+
+// join: opportunity <-> pain point it resolves
+model OpportunityPainPoint {
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunityId String
+  painPoint     PainPoint   @relation(fields: [painPointId], references: [id], onDelete: Cascade)
+  painPointId   String
+
+  @@id([opportunityId, painPointId])
+}
